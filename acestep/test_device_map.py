@@ -2,14 +2,26 @@
 
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acestep.device_map import (
     ComponentDeviceMap,
     DeviceMapError,
+    GpuInfo,
+    LayoutError,
+    LayoutRequest,
+    collect_gpu_runtime_status,
+    compute_auto_device_map,
     cuda_device_index,
+    device_map_to_dict,
     device_type,
+    estimate_dit_peak_gb,
+    estimate_lm_total_gb,
+    format_gpu_list_text,
+    gpu_info_to_dict,
     is_cuda_device,
+    log_lm_device_deprecation,
     normalize_component_device,
     parse_gpu_mapping,
     resolve_component_device_map,
@@ -98,6 +110,83 @@ class DeviceMapResolutionTests(unittest.TestCase):
         self.assertEqual(device_map.dit, "cuda:1")
         self.assertEqual(device_map.lm, "cuda:1")
 
+    def test_resolve_component_device_map_auto_uses_multi_gpu_layout(self):
+        gpus = [
+            GpuInfo(0, "GPU0", 24.0, 22.0),
+            GpuInfo(1, "GPU1", 24.0, 23.0),
+        ]
+        with patch("acestep.device_map.resolve.discover_gpus", return_value=gpus):
+            device_map = resolve_component_device_map(
+                requested_device="cuda:0",
+                gpu_mapping="auto",
+                config_path="acestep-v15-xl-sft",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        self.assertEqual(device_map.dit, "cuda:1")
+        self.assertEqual(device_map.lm, "cuda:0")
+        self.assertTrue(device_map.is_multi_device())
+
+    def test_resolve_component_device_map_auto_falls_back_on_single_gpu(self):
+        with patch("acestep.device_map.resolve.discover_gpus", return_value=[GpuInfo(0, "GPU0", 24.0, 22.0)]):
+            device_map = resolve_component_device_map(
+                requested_device="cuda:0",
+                gpu_mapping="auto",
+            )
+        self.assertEqual(device_map.dit, "cuda:0")
+        self.assertFalse(device_map.is_multi_device())
+
+
+class AutoLayoutTests(unittest.TestCase):
+    """Tests for VRAM-aware automatic layout selection."""
+
+    def test_compute_auto_device_map_splits_dit_and_lm(self):
+        gpus = [
+            GpuInfo(0, "GPU0", 24.0, 10.0),
+            GpuInfo(1, "GPU1", 24.0, 23.0),
+        ]
+        layout = compute_auto_device_map(
+            LayoutRequest(
+                gpus=gpus,
+                dit_type="xl_base",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        )
+        self.assertIsInstance(layout, ComponentDeviceMap)
+        self.assertEqual(layout.dit, "cuda:1")
+        self.assertEqual(layout.lm, "cuda:0")
+
+    def test_compute_auto_device_map_returns_error_when_dit_does_not_fit(self):
+        gpus = [GpuInfo(0, "GPU0", 8.0, 2.0)]
+        layout = compute_auto_device_map(
+            LayoutRequest(gpus=gpus, dit_type="xl_base")
+        )
+        self.assertIsInstance(layout, LayoutError)
+        self.assertIn("No GPU has", layout.message)
+
+    def test_compute_auto_device_map_rejects_same_gpu_lm_without_headroom(self):
+        """Co-located LM fallback must reserve the DiT footprint on the shared GPU."""
+        gpus = [GpuInfo(0, "GPU0", 24.0, 22.0)]
+        layout = compute_auto_device_map(
+            LayoutRequest(
+                gpus=gpus,
+                dit_type="xl_base",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        )
+        self.assertIsInstance(layout, LayoutError)
+        self.assertIn("No GPU has", layout.message)
+
+    def test_estimate_helpers_use_config_profiles(self):
+        self.assertGreater(estimate_dit_peak_gb("xl_base", batch_size=2), estimate_dit_peak_gb("turbo", 1))
+        self.assertGreater(
+            estimate_lm_total_gb("acestep-5Hz-lm-4B"),
+            estimate_lm_total_gb("acestep-5Hz-lm-0.6B"),
+        )
+
+
+class DeviceAliasTests(unittest.TestCase):
+    """Tests for CUDA alias helpers."""
+
     def test_device_for_maps_model_alias_to_dit(self):
         device_map = ComponentDeviceMap.from_single_device("cuda:0")
         self.assertEqual(device_map.device_for("model"), "cuda:0")
@@ -111,6 +200,64 @@ class DeviceMapResolutionTests(unittest.TestCase):
     def test_cuda_device_index_raises_device_map_error_for_malformed_index(self):
         with self.assertRaises(DeviceMapError):
             cuda_device_index("cuda:x")
+
+
+class GpuStatusHelpersTests(unittest.TestCase):
+    """Tests for CLI/API GPU listing and status helpers."""
+
+    def test_format_gpu_list_text_reports_no_devices(self):
+        self.assertEqual(format_gpu_list_text([]), "No CUDA devices detected.")
+
+    def test_format_gpu_list_text_includes_device_rows(self):
+        text = format_gpu_list_text(
+            [GpuInfo(0, "RTX 3090", 24.0, 22.5, (8, 6))]
+        )
+        self.assertIn("RTX 3090", text)
+        self.assertIn("24.00", text)
+
+    def test_gpu_info_and_device_map_serialization(self):
+        gpu_payload = gpu_info_to_dict(GpuInfo(1, "GPU1", 24.0, 20.0, (8, 6)))
+        self.assertEqual(gpu_payload["index"], 1)
+        self.assertEqual(gpu_payload["compute_capability"], [8, 6])
+
+        device_map = ComponentDeviceMap(
+            dit="cuda:0",
+            vae="cuda:0",
+            text_encoder="cuda:0",
+            lm="cuda:1",
+        )
+        map_payload = device_map_to_dict(device_map)
+        self.assertTrue(map_payload["multi_device"])
+        self.assertIn("lm:1", map_payload["summary"])
+
+    def test_collect_gpu_runtime_status_includes_handler_layout(self):
+        handler = SimpleNamespace(
+            device_map=ComponentDeviceMap.from_single_device("cuda:2")
+        )
+        with patch("acestep.device_map.status.discover_gpus", return_value=[]):
+            status = collect_gpu_runtime_status(handler=handler)
+        self.assertEqual(status["device_map"]["dit"], "cuda:2")
+        self.assertEqual(status["gpus"], [])
+
+    def test_log_lm_device_deprecation_without_mapping(self):
+        with patch.dict(os.environ, {"ACESTEP_LM_DEVICE": "cuda:1"}, clear=False), patch(
+            "acestep.device_map.status.logger"
+        ) as mock_logger:
+            log_lm_device_deprecation()
+        mock_logger.warning.assert_called_once()
+
+    def test_log_lm_device_deprecation_ignored_when_mapping_assigns_lm(self):
+        with patch.dict(
+            os.environ,
+            {
+                "ACESTEP_LM_DEVICE": "cuda:0",
+                "ACESTEP_GPU_MAPPING": "dit:0,vae:0,text_encoder:0,lm:1",
+            },
+            clear=False,
+        ), patch("acestep.device_map.status.logger") as mock_logger:
+            log_lm_device_deprecation(using_device_map_lm=True)
+        mock_logger.warning.assert_called_once()
+        self.assertIn("ignored", mock_logger.warning.call_args[0][0])
 
 
 if __name__ == "__main__":

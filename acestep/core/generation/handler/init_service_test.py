@@ -120,6 +120,35 @@ class InitServiceMixinTests(unittest.TestCase):
             self.assertFalse(host._is_on_target_device(t, ":0"))
         warning.assert_called_once()
 
+    def test_tensor_on_exact_device_distinguishes_cuda_indices(self):
+        """It compares full CUDA device strings, not just backend types."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        tensor = types.SimpleNamespace(device=torch.device("cuda:0"))
+        self.assertTrue(host._tensor_on_exact_device(tensor, "cuda:0"))
+        self.assertFalse(host._tensor_on_exact_device(tensor, "cuda:3"))
+        self.assertTrue(host._is_on_target_device(tensor, "cuda:3"))
+
+    def test_ensure_silence_latent_on_device_moves_across_cuda_indices(self):
+        """``silence_latent`` must follow ``device_map.dit``, not just the CUDA backend."""
+        host = _Host(project_root="K:/fake_root", device="cuda:3")
+        host.dtype = torch.float32
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:3,vae:0,text_encoder:0,lm:1",
+        )
+        moved_to = []
+
+        class _Latent:
+            device = torch.device("cuda:0")
+
+            def to(self, device_or_dtype, *args, **kwargs):
+                moved_to.append(device_or_dtype)
+                return self
+
+        host.silence_latent = _Latent()
+        host._ensure_silence_latent_on_device()
+        self.assertEqual(moved_to[0], "cuda:3")
+        self.assertEqual(len(moved_to), 2)
 
     def test_get_auto_decode_chunk_size_uses_cuda_device_index(self):
         """It probes effective VRAM on the selected CUDA device index."""
@@ -287,6 +316,63 @@ class InitServiceMixinTests(unittest.TestCase):
         )
         self.assertEqual(host._get_component_device("model"), "cuda:0")
         self.assertEqual(host._get_component_device("vae"), "cuda:2")
+
+    def test_route_service_payload_to_dit_moves_tensors(self):
+        """It routes diffusion tensors onto the DiT device in multi-GPU mode."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:0,vae:0,text_encoder:0,lm:1",
+        )
+        tensor = object()
+        payload = {
+            "text_hidden_states": tensor,
+            "ignored": "keep-me",
+        }
+        with patch.object(host, "_to_component_device", side_effect=lambda value, component: value) as move_mock:
+            routed = host._route_service_payload_to_dit(payload)
+        move_mock.assert_called_once_with(tensor, "dit")
+        self.assertIs(routed["text_hidden_states"], tensor)
+        self.assertEqual(routed["ignored"], "keep-me")
+
+    def test_route_service_generate_kwargs_to_dit_syncs_from_routed_payload(self):
+        """Diffusion kwargs should mirror routed payload tensors in multi-GPU mode."""
+        host = _Host(project_root="K:/fake_root", device="cuda:3")
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:3,vae:0,text_encoder:0,lm:1",
+        )
+        src_on_dit = object()
+        payload = {
+            "text_hidden_states": object(),
+            "text_attention_mask": object(),
+            "lyric_hidden_states": object(),
+            "lyric_attention_mask": object(),
+            "refer_audio_acoustic_hidden_states_packed": object(),
+            "refer_audio_order_mask": object(),
+            "src_latents": src_on_dit,
+            "chunk_mask": object(),
+            "is_covers": object(),
+            "non_cover_text_hidden_states": None,
+            "non_cover_text_attention_masks": None,
+            "precomputed_lm_hints_25Hz": None,
+            "target_latents": object(),
+        }
+        generate_kwargs = {
+            "text_hidden_states": object(),
+            "src_latents": object(),
+            "chunk_masks": object(),
+            "silence_latent": object(),
+            "timesteps": object(),
+        }
+        with patch.object(host, "_to_component_device", side_effect=lambda value, component: f"moved:{component}") as move_mock:
+            routed_kwargs = host._route_service_generate_kwargs_to_dit(generate_kwargs, payload)
+        self.assertIs(routed_kwargs["src_latents"], src_on_dit)
+        self.assertEqual(routed_kwargs["chunk_masks"], payload["chunk_mask"])
+        self.assertEqual(routed_kwargs["clean_src_latents"], "moved:dit")
+        self.assertEqual(routed_kwargs["silence_latent"], "moved:dit")
+        self.assertEqual(routed_kwargs["timesteps"], "moved:dit")
+        self.assertEqual(move_mock.call_count, 3)
 
     def test_configure_initialize_runtime_redirects_compile_on_mps(self):
         """It converts MPS compile intent to MLX compile and disables quantization."""
