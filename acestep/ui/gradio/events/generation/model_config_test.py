@@ -113,16 +113,16 @@ class GetUiControlConfigTests(unittest.TestCase):
         self.assertEqual(cfg["inference_steps_value"], 32)
         self.assertFalse(cfg["dcw_enabled_value"])
 
-    def test_turbo_model_returns_8_steps(self):
-        """Turbo models should default to 8 inference steps."""
+    def test_turbo_model_returns_20_steps(self):
+        """Turbo models should default to 20 inference steps (the turbo max)."""
         cfg = get_ui_control_config(is_turbo=True)
-        self.assertEqual(cfg["inference_steps_value"], 8)
+        self.assertEqual(cfg["inference_steps_value"], 20)
         self.assertTrue(cfg["dcw_enabled_value"])
 
     def test_turbo_takes_precedence_over_sft(self):
         """When both turbo and SFT flags are set, turbo should win."""
         cfg = get_ui_control_config(is_turbo=True, is_sft=True)
-        self.assertEqual(cfg["inference_steps_value"], 8)
+        self.assertEqual(cfg["inference_steps_value"], 20)
 
 
 class UpdateModelTypeSettingsIntegrationTests(unittest.TestCase):
@@ -135,10 +135,10 @@ class UpdateModelTypeSettingsIntegrationTests(unittest.TestCase):
         self.assertEqual(result[0]["value"], 50)
         self.assertEqual(result[9]["value"], False)
 
-    def test_turbo_path_produces_8_steps(self):
-        """Passing a turbo model path should yield 8 inference steps."""
+    def test_turbo_path_produces_20_steps(self):
+        """Passing a turbo model path should yield 20 inference steps."""
         result = update_model_type_settings("acestep-v15-turbo")
-        self.assertEqual(result[0]["value"], 8)
+        self.assertEqual(result[0]["value"], 20)
         self.assertEqual(result[9]["value"], True)
 
     def test_base_path_produces_32_steps(self):

@@ -180,7 +180,7 @@ class GenerationHandlersTests(unittest.TestCase):
         llm_handler.llm_initialized = True
         llm_handler.initialize.return_value = ("LLM initialized", True)
 
-        # Test with current_batch_size = None (should default to 2)
+        # Test with current_batch_size = None (should default to min(8, max_batch))
         result = generation_handlers.init_service_wrapper(
             dit_handler=dit_handler,
             llm_handler=llm_handler,
@@ -202,8 +202,8 @@ class GenerationHandlersTests(unittest.TestCase):
 
         batch_update = result[-2]
         
-        # Verify batch_update defaults to min(2, max_batch)
-        self.assertEqual(batch_update["value"], 2)
+        # Verify batch_update defaults to min(8, max_batch)
+        self.assertEqual(batch_update["value"], 8)
         self.assertEqual(batch_update["maximum"], 8)
 
     @patch("acestep.ui.gradio.events.generation.validation.gr.Warning")

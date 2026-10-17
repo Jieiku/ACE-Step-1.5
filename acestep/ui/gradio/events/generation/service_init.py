@@ -215,16 +215,16 @@ def init_service_wrapper(
                 if batch_value_int > max_batch:
                     logger.warning(f"Batch size {batch_value_int} exceeds GPU limit {max_batch}, clamping to {batch_value}")
             else:
-                logger.warning(f"Invalid batch size {batch_value_int} (must be >= 1), using default {min(2, max_batch)}")
-                batch_value = min(2, max_batch)
+                logger.warning(f"Invalid batch size {batch_value_int} (must be >= 1), using default {min(8, max_batch)}")
+                batch_value = min(8, max_batch)
         except ValueError:
-            logger.warning(f"Cannot convert batch size '{current_batch_size}' to integer, using default {min(2, max_batch)}")
-            batch_value = min(2, max_batch)
+            logger.warning(f"Cannot convert batch size '{current_batch_size}' to integer, using default {min(8, max_batch)}")
+            batch_value = min(8, max_batch)
         except TypeError:
-            logger.warning(f"Invalid batch size type {type(current_batch_size).__name__}, using default {min(2, max_batch)}")
-            batch_value = min(2, max_batch)
+            logger.warning(f"Invalid batch size type {type(current_batch_size).__name__}, using default {min(8, max_batch)}")
+            batch_value = min(8, max_batch)
     else:
-        batch_value = min(2, max_batch)
+        batch_value = min(8, max_batch)
 
     batch_update = gr.update(
         value=batch_value, maximum=max_batch,
@@ -320,7 +320,7 @@ def on_tier_change(selected_tier, llm_handler=None):
         ),
         gr.update(value=new_config.init_lm_default, elem_classes=["has-info-container"]),
         gr.update(
-            value=min(2, max_batch), maximum=max_batch,
+            value=min(8, max_batch), maximum=max_batch,
             info=f"Number of samples to generate (Max: {max_batch}).",
             elem_classes=["has-info-container"],
         ),

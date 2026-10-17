@@ -162,7 +162,7 @@ def build_lm_controls(service_mode: bool) -> dict[str, Any]:
             )
             use_cot_caption = gr.Checkbox(
                 label=t("generation.caption_rewrite_label"),
-                value=False,
+                value=True,
                 info=t("generation.caption_rewrite_info"),
                 scale=1,
                 elem_classes=["has-info-container"],

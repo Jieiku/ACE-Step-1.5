@@ -93,9 +93,10 @@ def build_optional_parameter_controls(
                 elem_classes=["auto-toggle"],
             )
         with gr.Row():
+            # Built-in default: 120s fixed duration with the auto toggle off.
             audio_duration = gr.Number(
                 label=t("generation.duration_label"),
-                value=-1,
+                value=120,
                 minimum=-1,
                 maximum=float(max_duration),
                 step=0.1,
@@ -115,9 +116,10 @@ def build_optional_parameter_controls(
                 interactive=not service_mode,
             )
         with gr.Row(elem_classes=["auto-toggles-row"]):
+            # Built-in default: duration auto is off (fixed 120s above).
             duration_auto = gr.Checkbox(
                 label=t("generation.duration_auto_label"),
-                value=True,
+                value=False,
                 container=False,
                 elem_classes=["auto-toggle"],
             )

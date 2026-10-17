@@ -228,7 +228,7 @@ def main():
     parser.add_argument(
         "--language",
         type=str,
-        default=os.environ.get("LANGUAGE", "en"),
+        default=os.environ.get("LANGUAGE") or "en",
         choices=[language[0] for language in available_languages],
         help="UI language:\n  "
         + "\n  ".join(
@@ -358,7 +358,7 @@ def main():
         "--batch_size",
         type=int,
         default=None,
-        help="Default batch size for generation (1-8). Defaults to min(2, GPU_max) if not specified",
+        help="Default batch size for generation (1-8). Defaults to min(8, GPU_max) if not specified",
     )
 
     # API mode argument
@@ -390,14 +390,15 @@ def main():
 
     args = parser.parse_args()
 
+    # Load model defaults from .env if not specified on the command line
+    if args.config_path is None:
+        args.config_path = os.environ.get("ACESTEP_CONFIG_PATH") or None
+    if args.lm_model_path is None:
+        args.lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH") or None
+
     # Enable API requires init_service
     if args.enable_api:
         args.init_service = True
-        # Load config from .env if not specified
-        if args.config_path is None:
-            args.config_path = os.environ.get("ACESTEP_CONFIG_PATH")
-        if args.lm_model_path is None:
-            args.lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
         if os.environ.get("ACESTEP_LM_BACKEND"):
             args.backend = os.environ.get("ACESTEP_LM_BACKEND")
 

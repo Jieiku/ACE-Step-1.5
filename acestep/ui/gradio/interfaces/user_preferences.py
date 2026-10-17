@@ -42,8 +42,8 @@ PREF_KEYS: list[str] = [
 # Default values used when localStorage is empty or the schema version has
 # changed.  Keys must match ``PREF_KEYS``.
 _DEFAULTS: dict[str, Any] = {
-    "audio_format": "mp3",
-    "mp3_bitrate": "128k",
+    "audio_format": "flac",
+    "mp3_bitrate": "320k",
     "mp3_sample_rate": 48000,
     "score_scale": 0.5,
     "enable_normalization": True,

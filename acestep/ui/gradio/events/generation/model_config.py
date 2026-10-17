@@ -113,7 +113,8 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bo
 
     if is_turbo:
         return {
-            "inference_steps_value": 8,
+            # Built-in default: 20 steps (the turbo maximum) for full quality.
+            "inference_steps_value": 20,
             "inference_steps_maximum": 20,
             "inference_steps_minimum": 1,
             "guidance_scale_visible": False,

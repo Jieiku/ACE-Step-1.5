@@ -37,6 +37,7 @@ class PipelineStartupBackendTests(unittest.TestCase):
         argv: list[str],
         *,
         env: dict[str, str] | None = None,
+        languages: list[tuple[str, str, str]] | None = None,
     ) -> tuple[MagicMock, dict[str, object]]:
         """Run ``main`` with heavy dependencies stubbed and capture startup state."""
         gpu_config = self._legacy_gpu_config()
@@ -72,7 +73,7 @@ class PipelineStartupBackendTests(unittest.TestCase):
             "acestep.acestep_v15_pipeline.get_i18n"
         ), patch(
             "acestep.acestep_v15_pipeline.available_languages_info",
-            return_value=[("en", "English", "English")],
+            return_value=languages or [("en", "English", "English")],
         ), patch(
             "acestep.acestep_v15_pipeline.AceStepHandler",
             return_value=dit_handler,
@@ -147,6 +148,103 @@ class PipelineStartupBackendTests(unittest.TestCase):
 
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
         self.assertEqual("pt", captured["init_params"]["backend"])
+
+    def test_main_language_defaults_to_en_when_env_is_empty(self) -> None:
+        """A set-but-empty LANGUAGE env var must fall back to 'en', not ''."""
+        _, captured = self._run_main(
+            ["acestep", "--service_mode", "true"],
+            env={"LANGUAGE": ""},
+        )
+        self.assertEqual("en", captured["language"])
+
+    def test_main_language_uses_env_when_set(self) -> None:
+        """A valid LANGUAGE env var should be used as the UI language."""
+        _, captured = self._run_main(
+            ["acestep", "--service_mode", "true"],
+            env={"LANGUAGE": "ja"},
+            languages=[("en", "English", "English"), ("ja", "Japanese", "日本語")],
+        )
+        self.assertEqual("ja", captured["language"])
+
+
+class PipelineEnvModelDefaultsTests(PipelineStartupBackendTests):
+    """Verify .env model defaults are honored without --enable-api."""
+
+    def _legacy_gpu_config(self) -> SimpleNamespace:
+        """Return a 24GB config so the 4B LM VRAM downgrade path does not fire."""
+        return SimpleNamespace(
+            gpu_memory_gb=24.0,
+            tier="tier6b",
+            max_duration_with_lm=480,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=8,
+            max_batch_size_without_lm=8,
+            init_lm_default=True,
+            available_lm_models=["acestep-5Hz-lm-0.6B"],
+            recommended_backend="pt",
+            lm_backend_restriction="pt_only",
+            offload_dit_to_cpu_default=False,
+            quantization_default=False,
+        )
+
+    def test_main_uses_env_model_defaults_without_enable_api(self) -> None:
+        """ACESTEP_CONFIG_PATH / ACESTEP_LM_MODEL_PATH should seed startup models."""
+        _, captured = self._run_main(
+            ["acestep", "--init_service", "true", "--init_llm", "true"],
+            env={
+                "ACESTEP_CONFIG_PATH": "acestep-v15-xl-sft",
+                "ACESTEP_LM_MODEL_PATH": "acestep-5Hz-lm-4B",
+            },
+        )
+
+        init_params = captured["init_params"]
+        self.assertEqual("acestep-v15-xl-sft", init_params["config_path"])
+        self.assertEqual("acestep-5Hz-lm-4B", init_params["lm_model_path"])
+
+    def test_main_cli_model_flags_override_env(self) -> None:
+        """Explicit CLI model flags should take precedence over .env values."""
+        _, captured = self._run_main(
+            [
+                "acestep",
+                "--init_service",
+                "true",
+                "--init_llm",
+                "true",
+                "--config_path",
+                "acestep-v15-turbo",
+                "--lm_model_path",
+                "acestep-5Hz-lm-0.6B",
+            ],
+            env={
+                "ACESTEP_CONFIG_PATH": "acestep-v15-xl-sft",
+                "ACESTEP_LM_MODEL_PATH": "acestep-5Hz-lm-4B",
+            },
+        )
+
+        init_params = captured["init_params"]
+        self.assertEqual("acestep-v15-turbo", init_params["config_path"])
+        self.assertEqual("acestep-5Hz-lm-0.6B", init_params["lm_model_path"])
+
+    def test_main_empty_env_model_defaults_fall_back_to_auto_select(self) -> None:
+        """Set-but-empty env model vars must fall back to auto-selection."""
+        _, captured = self._run_main(
+            ["acestep", "--init_service", "true", "--init_llm", "true"],
+            env={"ACESTEP_CONFIG_PATH": "", "ACESTEP_LM_MODEL_PATH": ""},
+        )
+
+        init_params = captured["init_params"]
+        self.assertEqual("acestep-v15-turbo", init_params["config_path"])
+        self.assertEqual("acestep-5Hz-lm-0.6B", init_params["lm_model_path"])
+
+    def test_main_without_env_keeps_auto_selected_models(self) -> None:
+        """Without env model vars the original auto-selection behavior is kept."""
+        _, captured = self._run_main(
+            ["acestep", "--init_service", "true", "--init_llm", "true"],
+        )
+
+        init_params = captured["init_params"]
+        self.assertEqual("acestep-v15-turbo", init_params["config_path"])
+        self.assertEqual("acestep-5Hz-lm-0.6B", init_params["lm_model_path"])
 
 
 if __name__ == "__main__":

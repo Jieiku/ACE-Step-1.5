@@ -22,11 +22,13 @@ def build_mode_selector_controls(initial_mode_choices: list[str]) -> dict[str, A
     """
 
     with gr.Row(equal_height=True):
+        # Built-in default: start in Simple mode (page-load wiring then applies
+        # the Simple-mode layout via compute_mode_ui_updates on demo.load()).
         generation_mode = gr.Radio(
             choices=initial_mode_choices,
-            value="Custom",
+            value="Simple",
             label=t("generation.mode_label"),
-            info=t("generation.mode_info_custom"),
+            info=t("generation.mode_info_simple"),
             elem_classes=["has-info-container"],
             scale=10,
         )
@@ -67,7 +69,9 @@ def build_hidden_generation_state() -> dict[str, Any]:
     )
     simple_sample_created = gr.State(value=False)
     lyrics_before_instrumental = gr.State(value="")
-    previous_generation_mode = gr.State(value="Custom")
+    # Must match the Radio's initial value so the first mode-change handler
+    # sees (Simple, Simple) and applies the Simple-mode layout on page load.
+    previous_generation_mode = gr.State(value="Simple")
     return {
         "task_type": task_type,
         "instruction_display_gen": instruction_display_gen,

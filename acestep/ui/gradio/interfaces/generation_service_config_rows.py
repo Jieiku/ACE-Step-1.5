@@ -7,7 +7,6 @@ import gradio as gr
 
 from acestep.gpu_config import (
     GPU_TIER_LABELS,
-    find_best_lm_model_on_disk,
     get_gpu_device_name,
 )
 from acestep.model_downloader import (
@@ -15,6 +14,8 @@ from acestep.model_downloader import (
     list_available_vae_variants,
 )
 from acestep.ui.gradio.i18n import t, available_languages_info
+
+from .generation_defaults import resolve_default_config_path, resolve_default_lm_model
 
 
 def build_language_selector(current_language: str) -> dict[str, Any]:
@@ -117,15 +118,9 @@ def build_model_device_controls(
 
     with gr.Row():
         available_models = dit_handler.get_available_acestep_v15_models()
-        default_model = (
-            "acestep-v15-xl-turbo"
-            if "acestep-v15-xl-turbo" in available_models
-            else (
-                "acestep-v15-turbo"
-                if "acestep-v15-turbo" in available_models
-                else (available_models[0] if available_models else None)
-            )
-        )
+        # When ACESTEP_CONFIG_PATH names an available model, seed the UI with
+        # it on first launch so the .env default actually takes effect.
+        default_model = resolve_default_config_path(available_models)
         config_path = gr.Dropdown(
             label=t("service.model_path_label"),
             choices=available_models,
@@ -199,7 +194,9 @@ def build_lm_backend_controls(
 
     with gr.Row():
         all_lm_models = llm_handler.get_available_5hz_lm_models()
-        default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_lm_models)
+        # When ACESTEP_LM_MODEL_PATH names an available model, seed the UI
+        # with it on first launch so the .env default actually takes effect.
+        default_lm_model = resolve_default_lm_model(all_lm_models, recommended_lm)
         lm_model_path = gr.Dropdown(
             label=t("service.lm_model_path_label"),
             choices=all_lm_models,

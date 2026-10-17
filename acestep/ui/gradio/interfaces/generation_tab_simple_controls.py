@@ -28,6 +28,8 @@ def build_simple_input_controls() -> tuple[gr.Textbox, gr.Dropdown, gr.Checkbox]
         scale=9,
     )
     with gr.Column(scale=1):
+        # Built-in default: instrumental is checked on startup, so the vocal
+        # language dropdown starts disabled (mirrors handle_simple_instrumental_change).
         simple_vocal_language = gr.Dropdown(
             choices=[
                 (lang if lang != "unknown" else "Instrumental / auto", lang)
@@ -36,12 +38,12 @@ def build_simple_input_controls() -> tuple[gr.Textbox, gr.Dropdown, gr.Checkbox]
             value="unknown",
             allow_custom_value=True,
             label=t("generation.simple_vocal_language_label"),
-            interactive=True,
+            interactive=False,
             scale=1,
         )
         simple_instrumental_checkbox = gr.Checkbox(
             label=t("generation.instrumental_label"),
-            value=False,
+            value=True,
             scale=1,
         )
     return simple_query_input, simple_vocal_language, simple_instrumental_checkbox
