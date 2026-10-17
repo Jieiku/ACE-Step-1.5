@@ -28,6 +28,7 @@ from acestep.ui.gradio.interfaces.generation import (
     create_advanced_settings_section,
     create_generation_tab_section,
 )
+from acestep.ui.gradio.interfaces.generation_defaults import compute_init_defaults
 from acestep.ui.gradio.interfaces.audio_player_preferences import (
     get_audio_player_preferences_head,
 )
@@ -342,8 +343,15 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
                 )
                 
                 # Results Section (inside the Generation tab, wrapped for visibility control)
+                # Initial column visibility is derived from the same defaults that
+                # seed ``batch_size_input`` so generated samples are never rendered
+                # into hidden columns on first render.
                 with gr.Column(visible=True) as results_wrapper:
-                    results_section = create_results_section(dit_handler)
+                    initial_defaults = compute_init_defaults(init_params, language)
+                    results_section = create_results_section(
+                        dit_handler,
+                        initial_batch_size=initial_defaults["default_batch_size"],
+                    )
                 # Store the wrapper in gen_section so event handlers can toggle it
                 gen_section["results_wrapper"] = results_wrapper
             

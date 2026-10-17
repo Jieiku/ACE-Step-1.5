@@ -3,8 +3,11 @@ Gradio UI Results Section Module
 Contains results display section component definitions
 """
 import gradio as gr
-from acestep.ui.gradio.i18n import t
+from acestep.ui.gradio.events.generation.ui_helpers import (
+    update_audio_components_visibility,
+)
 from acestep.ui.gradio.help_content import create_help_button
+from acestep.ui.gradio.i18n import t
 
 
 def _create_audio_column(n, visible=True):
@@ -94,8 +97,23 @@ def _create_audio_column(n, visible=True):
     }
 
 
-def create_results_section(dit_handler) -> dict:
-    """Create results display section"""
+def create_results_section(dit_handler, initial_batch_size: int | None = None) -> dict:
+    """Create results display section.
+
+    Args:
+        dit_handler: DiT handler instance.
+        initial_batch_size: Batch size the result view should reflect on first
+            render.  The per-sample columns are initialized visible/hidden to
+            match the initial value of ``batch_size_input`` so generated
+            samples are never rendered into hidden columns.  When ``None``,
+            the built-in default of 8 (all columns visible) is used.
+
+    Returns:
+        Dict of results-section components keyed for event wiring.
+    """
+    visibility = update_audio_components_visibility(
+        initial_batch_size if initial_batch_size is not None else 8
+    )
     with gr.Accordion(t("results.title"), open=True):
         create_help_button("results")
         # Hidden state to store LM-generated metadata
@@ -111,17 +129,19 @@ def create_results_section(dit_handler) -> dict:
         generation_params_state = gr.State(value={})
         is_generating_background = gr.State(value=False)
 
-        # Row 1: samples 1-4
+        # Row 1: samples 1-4 (``visibility`` indices 0-3)
         with gr.Row():
             cols_1_4 = []
             for i in range(1, 5):
-                cols_1_4.append(_create_audio_column(i, visible=(i <= 2)))
-        
-        # Row 2: samples 5-8 (initially hidden)
-        with gr.Row(visible=False) as audio_row_5_8:
+                cols_1_4.append(_create_audio_column(i, visible=visibility[i - 1]["visible"]))
+
+        # Row 2: samples 5-8 (visible once the batch size reaches 5).
+        # ``visibility`` layout: [col1..col4, row_5_8, col5..col8], so column
+        # *i* in this row maps to index *i* (the row occupies index 4).
+        with gr.Row(visible=visibility[4]["visible"]) as audio_row_5_8:
             cols_5_8 = []
             for i in range(5, 9):
-                cols_5_8.append(_create_audio_column(i, visible=True))
+                cols_5_8.append(_create_audio_column(i, visible=visibility[i]["visible"]))
         
         all_cols = cols_1_4 + cols_5_8
         
